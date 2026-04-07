@@ -320,7 +320,7 @@ const setupManifest = {
     configurable: true,
     configurationRequired: true,
   },
-  configurationURL: `${HOST}${BASE_PATH}/configure`,
+  configurationURL: `${HOST}/configure`,
 };
 
 const getConfiguredManifest = (groqKey, tmdbKey) => ({
