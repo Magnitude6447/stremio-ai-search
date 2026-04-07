@@ -545,18 +545,18 @@
       <form id="configForm">
         <!-- Basic Configuration (Always Visible) -->
         <div class="form-group">
-          <label class="form-label" for="geminiKey"
-            >Gemini API Key <span class="required">*</span></label
+          <label class="form-label" for="groqKey"
+            >Groq API Key <span class="required">*</span></label
           >
           <input
             type="password"
-            id="geminiKey"
-            placeholder="Enter your key from Google AI Studio"
+            id="groqKey"
+            placeholder="Enter your key from console.groq.com"
           />
           <div class="help-text">
             Get a free key from
-            <a href="https://makersuite.google.com/app/apikey" target="_blank"
-              >Google AI Studio</a
+            <a href="https://console.groq.com/keys" target="_blank"
+              >Groq Console</a
             >
           </div>
         </div>
@@ -825,22 +825,22 @@
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="geminiModel"
-              >Gemini Model Name</label
+            <label class="form-label" for="groqModel"
+              >Groq Model Name</label
             >
             <input
               type="text"
-              id="geminiModel"
-              placeholder="Enter model name (e.g., gemini-2.0-flash-lite)"
-              value="gemini-2.5-flash-lite"
+              id="groqModel"
+              placeholder="Enter model name (e.g., llama-3.3-70b-versatile)"
+              value="llama-3.3-70b-versatile"
             />
             <div class="help-text">
-              Enter the Gemini model id. See available models at
+              Enter the Groq model id. See available models at
               <a
-                href="https://ai.google.dev/gemini-api/docs/models/gemini"
+                href="https://console.groq.com/docs/models"
                 target="_blank"
               >
-                Gemini Models Documentation
+                Groq Models Documentation
               </a>
             </div>
           </div>
@@ -1096,7 +1096,7 @@
 
       // Remove the old key masking functions and setup
       function setupKeyHandling() {
-        const keyInputs = ["geminiKey", "tmdbKey", "rpdbKey", "fanartKey"];
+        const keyInputs = ["groqKey", "tmdbKey", "rpdbKey", "fanartKey"];
 
         keyInputs.forEach((inputId) => {
           const input = document.getElementById(inputId);
@@ -1116,12 +1116,12 @@
       });
 
       window.getAddonUrl = async function () {
-        const geminiKey = document.getElementById("geminiKey").value.trim();
+        const groqKey = document.getElementById("groqKey").value.trim();
         const tmdbKey = document.getElementById("tmdbKey").value.trim();
         
         // Basic validation
-        if (!geminiKey || geminiKey.length < 10) {
-          showError("Please enter a valid Gemini API key");
+        if (!groqKey || groqKey.length < 10) {
+          showError("Please enter a valid Groq API key");
           return null;
         }
         if (!tmdbKey || tmdbKey.length < 10) {
@@ -1131,7 +1131,7 @@
 
         try {
           setLoading(true);
-          const isValid = await validateApiKeys(geminiKey, tmdbKey);
+          const isValid = await validateApiKeys(groqKey, tmdbKey);
           if (!isValid) return null;
           clearError();
 
@@ -1139,14 +1139,14 @@
 
           // 1. Prepare the main configuration object
           const configData = {
-            GeminiApiKey: geminiKey,
+            GroqApiKey: groqKey,
             TmdbApiKey: tmdbKey,
             RpdbApiKey: document.getElementById("rpdbKey").value.trim(),
             FanartApiKey: document.getElementById("fanartKey").value.trim(),
             NumResults: parseInt(document.getElementById("numResults").value.trim()) || 20,
             EnableAiCache: document.getElementById("enableAiCache").checked,
             TmdbLanguage: document.getElementById("tmdbLanguage").value,
-            GeminiModel: document.getElementById("geminiModel").value,
+            GroqModel: document.getElementById("groqModel").value,
             EnableRpdb: document.getElementById("enableRpdbPosters").checked,
             EnableHomepage: document.getElementById("enableHomepage").checked,
             IncludeAdult: document.getElementById("includeAdult").checked,
@@ -1211,7 +1211,7 @@
         }
       };
 
-      async function validateApiKeys(geminiKey, tmdbKey) {
+      async function validateApiKeys(groqKey, tmdbKey) {
         const errorDiv = document.getElementById("error");
         const traktAccessToken = document
           .getElementById("traktAccessToken")
@@ -1228,7 +1228,7 @@
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              GeminiApiKey: geminiKey,
+              GroqApiKey: groqKey,
               TmdbApiKey: tmdbKey,
               FanartApiKey: fanartKey,
               TraktAccessToken: traktAccessToken,
@@ -1238,7 +1238,7 @@
 
           const result = await response.json();
 
-          if (!result.gemini || !result.tmdb) {
+          if (!result.groq || !result.tmdb) {
             errorDiv.style.display = "block";
             errorDiv.textContent = Object.values(result.errors).join(". ");
             return false;
@@ -1317,7 +1317,7 @@
       */
 
       // Update input change handlers to not automatically clear errors
-      document.getElementById("geminiKey").addEventListener("input", () => {
+      document.getElementById("groqKey").addEventListener("input", () => {
         document.getElementById("manual-url").style.display = "none";
       });
       document.getElementById("tmdbKey").addEventListener("input", () => {
@@ -1427,9 +1427,9 @@
               console.log("Loaded configuration:", config);
 
               // Pre-fill the form with the existing configuration
-              if (config.GeminiApiKey)
-                document.getElementById("geminiKey").value =
-                  config.GeminiApiKey;
+              if (config.GroqApiKey)
+                document.getElementById("groqKey").value =
+                  config.GroqApiKey;
               if (config.TmdbApiKey)
                 document.getElementById("tmdbKey").value = config.TmdbApiKey;
               if (config.RpdbApiKey) {
@@ -1449,9 +1449,9 @@
               if (config.EnableAiCache !== undefined)
                 document.getElementById("enableAiCache").checked =
                   config.EnableAiCache;
-              if (config.GeminiModel)
-                document.getElementById("geminiModel").value =
-                  config.GeminiModel;
+              if (config.GroqModel)
+                document.getElementById("groqModel").value =
+                  config.GroqModel;
               if (config.EnableRpdb !== undefined) {
                 document.getElementById("enableRpdbPosters").checked =
                   config.EnableRpdb;
@@ -1503,7 +1503,7 @@
                 config.NumResults ||
                 config.EnableAiCache !== undefined ||
                 config.TraktAccessToken ||
-                config.GeminiModel ||
+                config.GroqModel ||
                 config.EnableRpdb // Check the new flag too
               ) {
                 document.getElementById("showAdvancedOptions").checked = true;
@@ -1624,7 +1624,7 @@ window.addEventListener("message", async function (event) {
 
       async function authenticateTrakt() {
         const formData = {
-          geminiKey: document.getElementById("geminiKey").value,
+          groqKey: document.getElementById("groqKey").value,
           tmdbKey: document.getElementById("tmdbKey").value,
           rpdbKey: document.getElementById("rpdbKey").value,
           rpdbPosterType: document.getElementById("rpdbPosterType").value,
@@ -1633,7 +1633,7 @@ window.addEventListener("message", async function (event) {
           enableAiCache: document.getElementById("enableAiCache").checked,
           showAdvancedOptions: document.getElementById("showAdvancedOptions")
             .checked,
-          geminiModel: document.getElementById("geminiModel").value,
+          groqModel: document.getElementById("groqModel").value,
           traktAccessToken: document.getElementById("traktAccessToken").value,
           traktRefreshToken: document.getElementById("traktRefreshToken").value,
           enableRpdbPosters:
@@ -1672,7 +1672,7 @@ window.addEventListener("message", async function (event) {
         const savedFormData = sessionStorage.getItem("formData");
         if (savedFormData) {
           const formData = JSON.parse(savedFormData);
-          document.getElementById("geminiKey").value = formData.geminiKey || "";
+          document.getElementById("groqKey").value = formData.groqKey || "";
           document.getElementById("tmdbKey").value = formData.tmdbKey || "";
           document.getElementById("rpdbKey").value = formData.rpdbKey || "";
           document.getElementById("rpdbPosterType").value =
@@ -1683,8 +1683,8 @@ window.addEventListener("message", async function (event) {
             formData.numResults || "20";
           document.getElementById("enableAiCache").checked =
             formData.enableAiCache !== false;
-          if (formData.geminiModel)
-            document.getElementById("geminiModel").value = formData.geminiModel;
+          if (formData.groqModel)
+            document.getElementById("groqModel").value = formData.groqModel;
 
           // NEW: Restore RPDB checkbox state
           document.getElementById("enableRpdbPosters").checked =

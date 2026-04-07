@@ -323,7 +323,7 @@ const setupManifest = {
   configurationURL: `${HOST}${BASE_PATH}/configure`,
 };
 
-const getConfiguredManifest = (geminiKey, tmdbKey) => ({
+const getConfiguredManifest = (groqKey, tmdbKey) => ({
   ...setupManifest,
   behaviorHints: {
     configurable: false,
@@ -1483,28 +1483,28 @@ app.post(["/validate", "/aisearch/validate"], express.json(), async (req, res) =
   const startTime = Date.now();
   try {
     const {
-      GeminiApiKey,
+      GroqApiKey,
       TmdbApiKey,
-      GeminiModel,
+      GroqModel,
       TraktAccessToken,
       FanartApiKey,
       traktUsername,
     } = req.body;
-    
+
     const validationResults = {
-      gemini: false,
+      groq: false,
       tmdb: false,
       fanart: true, // Optional, so default to true
       trakt: true,
       errors: {},
     };
-    
-    const modelToUse = GeminiModel || "gemini-2.5-flash-lite";
+
+    const modelToUse = GroqModel || "llama-3.3-70b-versatile";
 
     if (ENABLE_LOGGING) {
       logger.debug("Validation request received", {
         path: req.path,
-        hasGeminiKey: !!GeminiApiKey,
+        hasGroqKey: !!GroqApiKey,
         hasTmdbKey: !!TmdbApiKey,
         hasTraktToken: !!TraktAccessToken,
         hasTraktUsername: !!traktUsername,
@@ -1513,26 +1513,28 @@ app.post(["/validate", "/aisearch/validate"], express.json(), async (req, res) =
 
     const validations = [];
 
-    // Gemini Validation
-    if (GeminiApiKey) {
+    // Groq Validation
+    if (GroqApiKey) {
       validations.push((async () => {
         try {
-          const { GoogleGenerativeAI } = require("@google/generative-ai");
-          const genAI = new GoogleGenerativeAI(GeminiApiKey);
-          const model = genAI.getGenerativeModel({ model: modelToUse });
-          const result = await model.generateContent("Test prompt");
-          const responseText = result.response.text();
-          if (responseText.length > 0) {
-            validationResults.gemini = true;
+          const Groq = require("groq-sdk");
+          const groq = new Groq({ apiKey: GroqApiKey });
+          const completion = await groq.chat.completions.create({
+            messages: [{ role: "user", content: "Say hello." }],
+            model: modelToUse,
+            max_tokens: 5,
+          });
+          if (completion.choices[0].message.content.length > 0) {
+            validationResults.groq = true;
           } else {
-            validationResults.errors.gemini = "Invalid Gemini API key - No response";
+            validationResults.errors.groq = "Invalid Groq API key - No response";
           }
         } catch (error) {
-          validationResults.errors.gemini = `Invalid Gemini API key: ${error.message}`;
+          validationResults.errors.groq = `Invalid Groq API key: ${error.message}`;
         }
       })());
     } else {
-       validationResults.errors.gemini = "Gemini API Key is required.";
+       validationResults.errors.groq = "Groq API Key is required.";
     }
 
     // TMDB Validation
