@@ -887,20 +887,9 @@
           <img src="bmc.png" alt="Buy me a coffee" />
         </a>
 
-        <!-- Add Submit Issue/Ideas button -->
-        <button
-          id="submitIssueBtn"
-          class="submit-issue-button"
-          onclick="event.preventDefault(); openIssueModal()"
-        >
-          Submit Issue/Ideas
-        </button>
-
-        <!-- Issue Modal -->
-        <div id="issueModal" class="modal">
+        <!-- Issue Modal removed (self-hosted) -->
+        <div id="issueModal" class="modal" style="display:none">
           <div class="modal-content">
-            <span class="close-modal">&times;</span>
-            <h2>Submit Issue/Ideas</h2>
             <form id="issueForm" onsubmit="return false;">
               <div class="form-group">
                 <label class="form-label" for="feedbackType"
@@ -1023,10 +1012,9 @@
     </div>
 
     <footer>
-      From the stables of ITCON . Made with love in Melbourne, AU<br />Submit
-      feature requests, issues at
+      Based on stremio-ai-search by ITCON &mdash; powered by Groq
       <a
-        href="https://github.com/itcon-pty-au/stremio-ai-search"
+        href="https://github.com/Magnitude6447/stremio-ai-search"
         target="_blank"
         class="github-link"
       >
@@ -2001,8 +1989,6 @@ window.addEventListener("message", async function (event) {
       });
     </script>
 
-    <!-- Replace reCAPTCHA script -->
-    <script src="https://www.google.com/recaptcha/api.js?render=6Lcq7-wqAAAAAECl1WKYOBhtSHVQhoWOOnZ_njlW"></script>
 
     <!-- Add a hidden field to store the existing config ID -->
     <input
