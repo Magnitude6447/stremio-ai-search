@@ -1379,6 +1379,8 @@ async function startServer() {
     app.use(BASE_PATH, addonRouter);
     app.use("/", addonRouter);
 
+    app.get("/", (req, res) => res.redirect("/configure"));
+
     app.post(["/encrypt", "/aisearch/encrypt"], express.json(), async (req, res) => {
       try {
         const { configData, traktAuthData } = req.body;
