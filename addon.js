@@ -2455,29 +2455,18 @@ function deserializeAllCaches(data) {
 async function discoverTypeAndGenres(query, groqKey, groqModel) {
   const groq = new Groq({ apiKey: groqKey });
 
-  const promptText = `
-Analyze this recommendation query: "${query}"
+  const promptText = `Analyze this content recommendation query: "${query}"
 
 Determine:
 1. What type of content is being requested (movie, series, or ambiguous)
-2. What genres are relevant to this query (be specific and use standard genre names)
+2. What genres are relevant to this query
 
-Respond in a single line with pipe-separated format:
-type|genre1,genre2,genre3
+Respond with a JSON object in this exact structure (no other text):
+{"type": "movie", "genres": ["action", "thriller"]}
 
-Where:
-- type is one of: movie, series, ambiguous
-- genres are comma-separated without spaces or all if no specific genres are discovered in the query
-
-Examples:
-movie|action,thriller,sci-fi
-series|comedy,drama
-ambiguous|romance,comedy
-movie|all
-series|all
-ambiguous|all
-
-Do not include any explanatory text before or after your response. Just the single line.
+Rules:
+- "type" must be exactly "movie", "series", or "ambiguous"
+- "genres" is an array of genre strings, or an empty array if no specific genres apply
 `;
 
   try {
@@ -2493,6 +2482,7 @@ Do not include any explanatory text before or after your response. Just the sing
           const completion = await groq.chat.completions.create({
             messages: [{ role: "user", content: promptText }],
             model: groqModel,
+            response_format: { type: "json_object" },
           });
           const responseText = completion.choices[0].message.content.trim();
 
@@ -2520,63 +2510,22 @@ Do not include any explanatory text before or after your response. Just the sing
       }
     );
 
-    // Extract the first line in case there's multiple lines
-    const firstLine = text.split("\n")[0].trim();
-
-    // Try to parse the pipe-separated format
     try {
-      // Split by pipe to get type and genres
-      const parts = firstLine.split("|");
-
-      if (parts.length !== 2) {
-        logger.error("Invalid format in genre discovery response", {
-          text: firstLine,
-          parts: parts.length,
-        });
-        return { type: "ambiguous", genres: [] };
-      }
-
-      // Get type and normalize it
-      let type = parts[0].trim().toLowerCase();
-      if (type !== "movie" && type !== "series") {
-        type = "ambiguous";
-      }
-
-      // Get genres
-      const genres = parts[1]
-        .split(",")
-        .map((g) => g.trim())
-        .filter((g) => g.length > 0 && g.toLowerCase() !== "ambiguous");
-
-      // If the only genre is "all", clear the genres array to use all genres
-      if (genres.length === 1 && genres[0].toLowerCase() === "all") {
-        logger.info(
-          "'All' genres specified, will use all genres for recommendations",
-          {
-            query,
-            type,
-          }
-        );
-        return {
-          type: type,
-          genres: [],
-        };
-      }
+      const data = JSON.parse(text);
+      let type = (data.type || "ambiguous").toLowerCase();
+      if (type !== "movie" && type !== "series") type = "ambiguous";
+      const genres = (data.genres || []).map((g) => g.trim()).filter(Boolean);
 
       logger.info("Successfully parsed genre discovery response", {
-        type: type,
+        type,
         genresCount: genres.length,
-        genres: genres,
+        genres,
       });
 
-      return {
-        type: type,
-        genres: genres,
-      };
+      return { type, genres };
     } catch (error) {
-      logger.error("Failed to parse genre discovery response", {
+      logger.error("Failed to parse genre discovery JSON response", {
         error: error.message,
-        text: firstLine,
         fullResponse: text,
       });
       return { type: "ambiguous", genres: [] };
@@ -2812,6 +2761,8 @@ const catalogHandler = async function (args, req) {
     if (numResults > 30) {
       numResults = MAX_AI_RECOMMENDATIONS;
     }
+    // Ask AI for 50% more to buffer against hallucinations/TMDB misses
+    const aiNumResults = Math.ceil(numResults * 1.5);
     const enableAiCache =
       configData.EnableAiCache !== undefined ? configData.EnableAiCache : true;
     // NEW: Read the EnableRpdb flag
@@ -3394,24 +3345,10 @@ const catalogHandler = async function (args, req) {
           "Found Titles:",
           initialTitles,
           "",
-          "If you are unable to collate ", numResults, " ", type, " recommendations", " add the missing ones from the initial database search results to the end of your recommendations.",
+          `If you are unable to collate ${aiNumResults} ${type} recommendations, add the missing ones from the initial database search results to the end of your recommendations.`,
         );
       }
 
-      let examplesText;
-      if (type === 'movie') {
-        examplesText = [
-          "EXAMPLES:",
-          "movie|The Matrix|1999",
-          "movie|Inception|2010",
-        ].join('\n');
-      } else {
-        examplesText = [
-          "EXAMPLES:",
-          "series|Breaking Bad|2008",
-          "series|Game of Thrones|2011",
-        ].join('\n');
-      }
 
       promptText = promptText.concat([
         "IMPORTANT INSTRUCTIONS:",
@@ -3429,7 +3366,7 @@ const catalogHandler = async function (args, req) {
         "",
         `1. FRANCHISE/SERIES: If the query is for a specific title that is part of a larger series (e.g., 'Shrek', 'The Matrix Reloaded', 'Harry Potter', 'star wars', 'Jurassic Park') or explicitly asks for a franchise ('James Bond movies'), ${franchiseInstruction}`,
         `   - List them first, in STRICT chronological order of release.`,
-        `   - After listing the entire franchise, if you need more results to reach the count of ${numResults}, you may add official spin-offs or highly similar titles.`,
+        `   - After listing the entire franchise, if you need more results to reach the count of ${aiNumResults}, you may add official spin-offs or highly similar titles.`,
         "",
         `2. ACTOR/DIRECTOR/STUDIO FILMOGRAPHY: If the query is for the works of a person or entity (e.g., 'Tom Cruise movies', 'Christopher Nolan films', 'Pixar movies', 'Marvel movies', 'dc universe', 'Fast and Furious franchise'), list their most notable and critically acclaimed works.`,
         `   - Provide a comprehensive selection covering different genres and eras of their career.`,
@@ -3437,8 +3374,7 @@ const catalogHandler = async function (args, req) {
         "",
         `3. GENERAL RECOMMENDATIONS: For ALL other queries, provide diverse recommendations that best match the query's theme, genre, and mood.`,
         `   - Order these results by their relevance to the query.`,
-        "CRITICAL REQUIREMENTS:",
-        `- You MUST use the Google Search tool to find ALL recommendations. Your internal knowledge is outdated and should only be used in conjunction with Google search tool for this task.`,]);
+        "CRITICAL REQUIREMENTS:"]);
         if (traktData) {
           promptText.push(
             `- DO NOT recommend any content that appears in the user's watch history or ratings above.`,
@@ -3446,21 +3382,18 @@ const catalogHandler = async function (args, req) {
           );
         }
         promptText = promptText.concat([
-        `- You MUST return upto ${numResults} ${type} recommendations. If you can't find enough perfect matches, broaden your criteria while staying within the genre/theme requirements.`,
-        `- Prioritize quality over exact matching - it's better to recommend a great content that's somewhat related than a mediocre content that perfectly matches all criteria.`,
-        `- If the user has watched many content in the requested genre, consider recommending lesser-known gems, international films, or recent releases they might have missed.`,
+        `- Return exactly ${aiNumResults} ${type} recommendations. If you can't find enough perfect matches, broaden your criteria while staying within the genre/theme requirements.`,
+        `- Prioritize quality over exact matching.`,
+        `- Include lesser-known gems, international films, and recent releases alongside well-known titles.`,
         "",
-        "RESPONSE FORMAT: You MUST respond in the following format (without any additional commentary):",
-        "[type]|[name]|[year]",
-        "",
-        examplesText,
+        "RESPONSE FORMAT: Respond with a JSON object only — no other text:",
+        `{"recommendations": [{"type": "${type}", "title": "Example Title", "year": 2010}]}`,
         "",
         "RULES:",
-        "- Use | separator",
-        "- Year: YYYY format",
-        `- Type: Accurately label each item as 'movie' or 'series'.`,
-        "- Titles: Provide clean, official titles only. Do NOT add extra text like '(film)', '(documentary)', or other descriptions.",
-        "- Content: ONLY include official, released movies and TV series. Exclude games, books, fan-made content, and stage productions.",
+        `- "type": must be exactly "${type}"`,
+        `- "title": clean official title only, no extra descriptions like '(film)' or '(documentary)'`,
+        `- "year": integer (not a string)`,
+        "- ONLY include official, released movies and TV series. Exclude games, books, fan-made content, stage productions.",
         "- Only best matches that strictly match ALL query requirements",
         "- If specific genres/time periods are requested, ALL recommendations must match those criteria",
       ]);
@@ -3501,6 +3434,7 @@ const catalogHandler = async function (args, req) {
             const completion = await groq.chat.completions.create({
               messages: [{ role: "user", content: promptText }],
               model: groqModel,
+              response_format: { type: "json_object" },
             });
             const responseText = completion.choices[0].message.content.trim();
 
@@ -3531,16 +3465,15 @@ const catalogHandler = async function (args, req) {
         }
       );
 
-      // Process the response text
-      const lines = text
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line && !line.startsWith("type|"));
-
-      logger.debug("Parsed recommendation lines", {
-        totalLines: text.split("\n").length,
-        validLines: lines.length,
-      });
+      // Parse JSON response
+      let parsedItems = [];
+      try {
+        const parsed = JSON.parse(text);
+        parsedItems = parsed.recommendations || [];
+      } catch (e) {
+        logger.error("Failed to parse JSON response from AI", { error: e.message, text });
+        return { metas: [] };
+      }
 
       const recommendations = {
         movies: type === "movie" ? [] : undefined,
@@ -3548,86 +3481,27 @@ const catalogHandler = async function (args, req) {
       };
 
       let validRecommendations = 0;
-      let invalidLines = 0;
 
-      for (const line of lines) {
-        try {
-          const parts = line.split("|");
+      for (const item of parsedItems) {
+        const name = (item.title || "").trim();
+        const yearNum = parseInt(item.year);
+        if (!name || isNaN(yearNum)) continue;
 
-          let lineType, name, year;
+        const entry = {
+          name,
+          year: yearNum,
+          type,
+          id: `ai_${type}_${name.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
+        };
 
-          if (parts.length === 3) {
-            [lineType, name, year] = parts.map((s) => s.trim());
-          } else if (parts.length === 2) {
-            lineType = parts[0].trim();
-            const nameWithYear = parts[1].trim();
-
-            const yearMatch = nameWithYear.match(/\((\d{4})\)$/);
-            if (yearMatch) {
-              year = yearMatch[1];
-              name = nameWithYear
-                .substring(0, nameWithYear.lastIndexOf("("))
-                .trim();
-            } else {
-              const anyYearMatch = nameWithYear.match(/\b(19\d{2}|20\d{2})\b/);
-              if (anyYearMatch) {
-                year = anyYearMatch[0];
-                name = nameWithYear.replace(anyYearMatch[0], "").trim();
-              } else {
-                logger.debug("Missing year in recommendation", {
-                  nameWithYear,
-                });
-                invalidLines++;
-                continue;
-              }
-            }
-          } else {
-            logger.debug("Invalid recommendation format", { line });
-            invalidLines++;
-            continue;
-          }
-
-          const yearNum = parseInt(year);
-
-          if (!lineType || !name || isNaN(yearNum)) {
-            logger.debug("Invalid recommendation data", {
-              lineType,
-              name,
-              year,
-              isValidYear: !isNaN(yearNum),
-            });
-            invalidLines++;
-            continue;
-          }
-
-          if (lineType === type && name && yearNum) {
-            const item = {
-              name,
-              year: yearNum,
-              type,
-              id: `ai_${type}_${name
-                .toLowerCase()
-                .replace(/[^a-z0-9]+/g, "_")}`,
-            };
-
-            if (type === "movie") recommendations.movies.push(item);
-            else if (type === "series") recommendations.series.push(item);
-
-            validRecommendations++;
-          }
-        } catch (error) {
-          logger.error("Error processing recommendation line", {
-            line,
-            error: error.message,
-          });
-          invalidLines++;
-        }
+        if (type === "movie") recommendations.movies.push(entry);
+        else recommendations.series.push(entry);
+        validRecommendations++;
       }
 
       logger.info("Recommendation processing complete", {
         validRecommendations,
-        invalidLines,
-        totalProcessed: lines.length,
+        totalParsed: parsedItems.length,
       });
 
       const finalResult = {
@@ -3810,7 +3684,7 @@ const catalogHandler = async function (args, req) {
         )
       );
 
-      const metas = (await Promise.all(metaPromises)).filter(Boolean);
+      const metas = (await Promise.all(metaPromises)).filter(Boolean).slice(0, numResults);
 
       // Log detailed results
       logger.debug("Meta conversion results", {
@@ -3994,15 +3868,13 @@ const metaHandler = async function (args) {
       2.  **Final Output:** Provide **ONLY** the combined list of recommendations. Do not include any headers (like "PART 1"), introductory text, or explanations.
 
       **Format:**
-      Your response must be a list of pipe-separated values, with each entry on a new line:
-      type|name|year
+      Respond with a JSON object only — no other text:
+      {"recommendations": [{"type": "movie", "title": "Batman Begins", "year": 2005}]}
 
-      **Example (if the source was 'The Dark Knight' and numResults was 5):**
-      movie|Batman Begins|2005
-      movie|The Dark Knight Rises|2012
-      movie|The Town|2010
-      movie|Zodiac|2007
-      movie|Prisoners|2013
+      Rules:
+      - "type": exactly "movie" or "series"
+      - "title": clean official title only
+      - "year": integer (not a string)
       `;
 
       const groqMeta = new Groq({ apiKey: GroqApiKey });
@@ -4012,6 +3884,7 @@ const metaHandler = async function (args) {
           return await groqMeta.chat.completions.create({
             messages: [{ role: "user", content: promptText }],
             model: GroqModel || DEFAULT_GROQ_MODEL,
+            response_format: { type: "json_object" },
           });
         },
         {
@@ -4023,12 +3896,20 @@ const metaHandler = async function (args) {
       );
 
       const responseText = completion.choices[0].message.content.trim();
-      const lines = responseText.split('\n').map(line => line.trim()).filter(Boolean);
+      let parsedItems = [];
+      try {
+        const parsed = JSON.parse(responseText);
+        parsedItems = parsed.recommendations || [];
+      } catch (e) {
+        logger.error("Failed to parse similar content JSON", { error: e.message, responseText });
+        return { meta: null };
+      }
 
-      const videoPromises = lines.map(async (line) => {
-        const parts = line.split('|');
-        if (parts.length !== 3) return null;
-        const [recType, name, year] = parts.map(p => p.trim());
+      const videoPromises = parsedItems.map(async (item) => {
+        const name = (item.title || "").trim();
+        const recType = (item.type || "movie").toLowerCase();
+        const year = String(item.year || "");
+        if (!name) return null;
         const tmdbData = await searchTMDB(name, recType, year, TmdbApiKey);
         if (tmdbData && tmdbData.imdb_id) {
           

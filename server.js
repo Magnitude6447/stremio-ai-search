@@ -794,17 +794,10 @@ async function startServer() {
           }
 
           const hostWithoutProtocol = HOST.replace(/^https?:\/\//, "");
-          const modifiedHtml = data
-            .replace(
-              'const TRAKT_CLIENT_ID = "YOUR_ADDON_CLIENT_ID";',
-              `const TRAKT_CLIENT_ID = "${TRAKT_CLIENT_ID}";`
-            )
-            .replace(
-              'const HOST = "stremio.itcon.au";',
-              `const HOST = "${hostWithoutProtocol}";`
-            )
-            .replace('src="logo.png"', `src="${BASE_PATH}/logo.png"`)
-            .replace('src="bmc.png"', `src="${BASE_PATH}/bmc.png"`);
+          const modifiedHtml = data.replace(
+            'const HOST = "stremio.itcon.au";',
+            `const HOST = "${hostWithoutProtocol}";`
+          );
 
           res.send(modifiedHtml);
         });
@@ -901,22 +894,15 @@ async function startServer() {
           }
 
           const hostWithoutProtocol = HOST.replace(/^https?:\/\//, "");
-          let modifiedHtml = data
-            .replace(
-              'const TRAKT_CLIENT_ID = "YOUR_ADDON_CLIENT_ID";',
-              `const TRAKT_CLIENT_ID = "${TRAKT_CLIENT_ID}";`
-            )
+          const modifiedHtml = data
             .replace(
               'const HOST = "stremio.itcon.au";',
               `const HOST = "${hostWithoutProtocol}";`
             )
-            .replace('src="logo.png"', `src="${BASE_PATH}/logo.png"`)
-            .replace('src="bmc.png"', `src="${BASE_PATH}/bmc.png"`);
-
-          modifiedHtml = modifiedHtml.replace(
-            'value=""',
-            `value="${encryptedConfig}"`
-          );
+            .replace(
+              'window.EXISTING_CONFIG_ID = null;',
+              `window.EXISTING_CONFIG_ID = "${encryptedConfig}";`
+            );
 
           res.send(modifiedHtml);
         });
