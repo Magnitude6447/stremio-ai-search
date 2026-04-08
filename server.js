@@ -30,7 +30,23 @@ const {
   isValidEncryptedFormat,
 } = require("./utils/crypto");
 const zlib = require("zlib");
-const { initDb, storeTokens, getTokens } = require("./database");
+const { initDb, storeTokens, getTokens, saveUserConfig, getUserConfig } = require("./database");
+const { randomUUID } = require("crypto");
+
+// Detect stable config IDs (UUID format) vs legacy encrypted config strings
+function isConfigId(str) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(str);
+}
+
+// Resolve a config param to an encrypted config string (handles both UUID and legacy)
+async function resolveEncryptedConfig(configParam) {
+  if (!configParam) return null;
+  if (isConfigId(configParam)) {
+    const stored = await getUserConfig(configParam);
+    return stored ? stored.config_encrypted : null;
+  }
+  return configParam;
+}
 
 // Admin token for cache management
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-me-in-env-file";
@@ -518,14 +534,15 @@ async function startServer() {
         res.json(baseManifest);
       });
 
-      addonRouter.get(routePath + ":config/manifest.json", (req, res) => {
+      addonRouter.get(routePath + ":config/manifest.json", async (req, res) => {
         try {
-          const encryptedConfig = req.params.config;
+          const configParam = req.params.config;
+          const encryptedConfig = await resolveEncryptedConfig(configParam);
           req.stremioConfig = encryptedConfig;
           let manifestWithConfig = {
             ...addonInterface.manifest,
           };
-          
+
           // Start with only the search catalogs from the base manifest
           manifestWithConfig.catalogs = manifestWithConfig.catalogs.filter(
               catalog => catalog.isSearch === true
@@ -612,8 +629,12 @@ async function startServer() {
               });
             }
 
-            const encryptedConfig = req.params.config;
+            const configParam = req.params.config;
+            const encryptedConfig = await resolveEncryptedConfig(configParam);
 
+            if (configParam && !encryptedConfig) {
+              return res.json({ metas: [], error: "Invalid configuration format" });
+            }
             if (encryptedConfig && !isValidEncryptedFormat(encryptedConfig)) {
               if (ENABLE_LOGGING) {
                 logger.error("Invalid encrypted config format", {
@@ -875,11 +896,25 @@ async function startServer() {
         }
       });
 
-      // Handle configuration editing with encrypted config
-      addonRouter.get(routePath + ":encryptedConfig/configure", (req, res) => {
-        const { encryptedConfig } = req.params;
+      // Handle configuration editing — supports both UUID and legacy encrypted config in URL
+      addonRouter.get(routePath + ":configParam/configure", async (req, res) => {
+        const { configParam } = req.params;
 
-        if (!encryptedConfig || !isValidEncryptedFormat(encryptedConfig)) {
+        if (!configParam) {
+          return res.status(400).send("Invalid configuration format");
+        }
+
+        // Determine the EXISTING_CONFIG_ID to inject
+        let existingConfigId = null;
+        if (isConfigId(configParam)) {
+          // UUID: verify it exists in DB
+          const stored = await getUserConfig(configParam);
+          if (!stored) return res.redirect("/aisearch/configure");
+          existingConfigId = configParam;
+        } else if (isValidEncryptedFormat(configParam)) {
+          // Legacy encrypted config in URL
+          existingConfigId = configParam;
+        } else {
           return res.status(400).send("Invalid configuration format");
         }
 
@@ -901,42 +936,88 @@ async function startServer() {
             )
             .replace(
               'window.EXISTING_CONFIG_ID = null;',
-              `window.EXISTING_CONFIG_ID = "${encryptedConfig}";`
+              `window.EXISTING_CONFIG_ID = "${existingConfigId}";`
             );
 
           res.send(modifiedHtml);
         });
       });
 
-      // Update the getConfig endpoint to handle the full path
-      addonRouter.get(routePath + "api/getConfig/:configId", (req, res) => {
+      // GET /api/getConfig/:configId — returns decrypted config (supports UUID or encrypted string)
+      addonRouter.get(routePath + "api/getConfig/:configId", async (req, res) => {
         try {
           const { configId } = req.params;
-
-          // Remove any path prefix if present
           const cleanConfigId = configId.split("/").pop();
 
-          if (!cleanConfigId || !isValidEncryptedFormat(cleanConfigId)) {
-            return res
-              .status(400)
-              .json({ error: "Invalid configuration format" });
+          let encryptedConfig;
+          if (isConfigId(cleanConfigId)) {
+            const stored = await getUserConfig(cleanConfigId);
+            if (!stored) return res.status(404).json({ error: "Configuration not found" });
+            encryptedConfig = stored.config_encrypted;
+          } else if (isValidEncryptedFormat(cleanConfigId)) {
+            encryptedConfig = cleanConfigId;
+          } else {
+            return res.status(400).json({ error: "Invalid configuration format" });
           }
 
-          const decryptedConfig = decryptConfig(cleanConfigId);
+          const decryptedConfig = decryptConfig(encryptedConfig);
           if (!decryptedConfig) {
-            return res
-              .status(400)
-              .json({ error: "Failed to decrypt configuration" });
+            return res.status(400).json({ error: "Failed to decrypt configuration" });
           }
 
-          // Parse and return the configuration
-          const config = JSON.parse(decryptedConfig);
-          res.json(config);
+          res.json(JSON.parse(decryptedConfig));
         } catch (error) {
           logger.error("Error getting configuration:", {
             error: error.message,
             stack: error.stack,
           });
+          res.status(500).json({ error: "Internal server error" });
+        }
+      });
+
+      // POST /api/config — create new config, return UUID + install URL
+      addonRouter.post(routePath + "api/config", async (req, res) => {
+        try {
+          const { configData } = req.body;
+          if (!configData) return res.status(400).json({ error: "Missing configData" });
+
+          const encryptedConfig = encryptConfig(JSON.stringify(configData));
+          if (!encryptedConfig) return res.status(500).json({ error: "Encryption failed" });
+
+          const id = randomUUID();
+          await saveUserConfig(id, encryptedConfig);
+
+          const hostWithoutProtocol = HOST.replace(/^https?:\/\//, "");
+          res.json({
+            configId: id,
+            manifestUrl: `https://${hostWithoutProtocol}/aisearch/${id}/manifest.json`,
+            configureUrl: `https://${hostWithoutProtocol}/aisearch/${id}/configure`,
+          });
+        } catch (error) {
+          logger.error("Error creating config:", { error: error.message });
+          res.status(500).json({ error: "Internal server error" });
+        }
+      });
+
+      // PUT /api/config/:id — update existing config in place
+      addonRouter.put(routePath + "api/config/:id", async (req, res) => {
+        try {
+          const { id } = req.params;
+          if (!isConfigId(id)) return res.status(400).json({ error: "Invalid config ID" });
+
+          const { configData } = req.body;
+          if (!configData) return res.status(400).json({ error: "Missing configData" });
+
+          const stored = await getUserConfig(id);
+          if (!stored) return res.status(404).json({ error: "Configuration not found" });
+
+          const encryptedConfig = encryptConfig(JSON.stringify(configData));
+          if (!encryptedConfig) return res.status(500).json({ error: "Encryption failed" });
+
+          await saveUserConfig(id, encryptedConfig);
+          res.json({ ok: true });
+        } catch (error) {
+          logger.error("Error updating config:", { error: error.message });
           res.status(500).json({ error: "Internal server error" });
         }
       });

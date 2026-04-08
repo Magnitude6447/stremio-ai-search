@@ -613,12 +613,13 @@
   <div id="status"></div>
   <div class="actions">
     <button class="btn btn-primary" id="generateBtn" onclick="generate()">Generate addon URL</button>
-    <button class="btn btn-secondary" id="copyBtn" onclick="copyUrl()" style="display:none">Copy URL</button>
+    <button class="btn btn-primary" id="updateBtn" onclick="update()" style="display:none">Update Settings</button>
+    <button class="btn btn-secondary" id="copyBtn" style="display:none">Copy URL</button>
   </div>
 
   <!-- Result -->
   <div id="result-section">
-    <div class="result-title">Addon URL ready</div>
+    <div class="result-title" id="result-title">Addon URL ready</div>
     <div class="url-row">
       <div class="url-display" id="url-display"></div>
     </div>
@@ -626,6 +627,9 @@
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
       Install in Stremio
     </a>
+    <div id="configure-url-row" style="display:none; margin-top:10px; font-size:0.85em; color: var(--text-muted);">
+      Settings URL: <span id="configure-url-display" style="word-break:break-all;"></span>
+    </div>
   </div>
 
   <footer>
@@ -715,47 +719,11 @@
     el.className = '';
   }
 
-  // --- Generate ---
-  async function generate() {
-    clearStatus();
-    const groqKey  = document.getElementById('groqKey').value.trim();
-    const tmdbKey  = document.getElementById('tmdbKey').value.trim();
-
-    if (!groqKey || groqKey.length < 10) { showStatus('Please enter a valid Groq API key.'); return; }
-    if (!tmdbKey || tmdbKey.length < 10) { showStatus('Please enter a valid TMDB API key.'); return; }
-
-    const btn = document.getElementById('generateBtn');
-    btn.disabled = true;
-    btn.innerHTML = '<span class="spinner"></span>Validating…';
-
-    try {
-      const resp = await fetch('/aisearch/validate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          GroqApiKey: groqKey,
-          TmdbApiKey: tmdbKey,
-          GroqModel: document.getElementById('groqModel').value,
-        }),
-      });
-      const result = await resp.json();
-
-      if (!result.groq || !result.tmdb) {
-        showStatus(Object.values(result.errors || {}).join(' '));
-        return;
-      }
-    } catch (e) {
-      showStatus('Validation request failed. Check your network and try again.');
-      return;
-    } finally {
-      btn.disabled = false;
-      btn.innerHTML = 'Generate addon URL';
-    }
-
-    // Build config object
-    const config = {
-      GroqApiKey:    groqKey,
-      TmdbApiKey:    tmdbKey,
+  // --- Build config object from form ---
+  function buildConfig() {
+    return {
+      GroqApiKey:    document.getElementById('groqKey').value.trim(),
+      TmdbApiKey:    document.getElementById('tmdbKey').value.trim(),
       GroqModel:     document.getElementById('groqModel').value,
       RpdbApiKey:    document.getElementById('rpdbKey').value.trim(),
       FanartApiKey:  document.getElementById('fanartKey').value.trim(),
@@ -767,34 +735,132 @@
       EnableHomepage:document.getElementById('enableHomepage').checked,
       HomepageQuery: getHomepageQueries(),
     };
+  }
 
+  // --- Validate keys before saving ---
+  async function validateKeys(groqKey, tmdbKey, btnEl, originalLabel) {
+    btnEl.disabled = true;
+    btnEl.innerHTML = '<span class="spinner"></span>Validating…';
     try {
-      const encResp = await fetch('/aisearch/encrypt', {
+      const resp = await fetch('/aisearch/validate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ configData: config }),
+        body: JSON.stringify({ GroqApiKey: groqKey, TmdbApiKey: tmdbKey, GroqModel: document.getElementById('groqModel').value }),
       });
-      const encResult = await encResp.json();
-      if (!encResult.encryptedConfig) throw new Error('Encryption failed');
-
-      const manifestUrl = `https://${HOST}/${encResult.encryptedConfig}/manifest.json`;
-      const stremioUrl  = `stremio://${HOST}/${encResult.encryptedConfig}/manifest.json`;
-
-      document.getElementById('url-display').textContent = manifestUrl;
-      document.getElementById('stremio-link').href = stremioUrl;
-      document.getElementById('copyBtn').style.display = 'block';
-      document.getElementById('copyBtn').onclick = () => {
-        navigator.clipboard.writeText(manifestUrl);
-        const b = document.getElementById('copyBtn');
-        b.textContent = 'Copied!';
-        setTimeout(() => { b.textContent = 'Copy URL'; }, 2000);
-      };
-      document.getElementById('result-section').style.display = 'block';
-      document.getElementById('result-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      const result = await resp.json();
+      if (!result.groq || !result.tmdb) {
+        showStatus(Object.values(result.errors || {}).join(' '));
+        return false;
+      }
+      return true;
     } catch (e) {
-      showStatus('Failed to encrypt configuration. Please try again.');
+      showStatus('Validation request failed. Check your network and try again.');
+      return false;
+    } finally {
+      btnEl.disabled = false;
+      btnEl.innerHTML = originalLabel;
     }
   }
+
+  // --- Show result ---
+  function showResult(manifestUrl, configureUrl, title) {
+    const stremioUrl = manifestUrl.replace('https://', 'stremio://');
+    document.getElementById('result-title').textContent = title || 'Addon URL ready';
+    document.getElementById('url-display').textContent = manifestUrl;
+    document.getElementById('stremio-link').href = stremioUrl;
+    const copyBtn = document.getElementById('copyBtn');
+    copyBtn.style.display = 'inline-block';
+    copyBtn.textContent = 'Copy URL';
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(manifestUrl);
+      copyBtn.textContent = 'Copied!';
+      setTimeout(() => { copyBtn.textContent = 'Copy URL'; }, 2000);
+    };
+    if (configureUrl) {
+      document.getElementById('configure-url-display').textContent = configureUrl;
+      document.getElementById('configure-url-row').style.display = 'block';
+    }
+    document.getElementById('result-section').style.display = 'block';
+    document.getElementById('result-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // --- Generate (new install) ---
+  async function generate() {
+    clearStatus();
+    const groqKey = document.getElementById('groqKey').value.trim();
+    const tmdbKey = document.getElementById('tmdbKey').value.trim();
+    if (!groqKey || groqKey.length < 10) { showStatus('Please enter a valid Groq API key.'); return; }
+    if (!tmdbKey || tmdbKey.length < 10) { showStatus('Please enter a valid TMDB API key.'); return; }
+
+    const btn = document.getElementById('generateBtn');
+    const ok = await validateKeys(groqKey, tmdbKey, btn, 'Generate addon URL');
+    if (!ok) return;
+
+    try {
+      const resp = await fetch('/aisearch/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ configData: buildConfig() }),
+      });
+      const result = await resp.json();
+      if (!result.configId) throw new Error('Config creation failed');
+
+      localStorage.setItem('stremioAiSearchConfigId', result.configId);
+      window.EXISTING_CONFIG_ID = result.configId;
+      document.getElementById('generateBtn').style.display = 'none';
+      document.getElementById('updateBtn').style.display = 'inline-block';
+      showResult(result.manifestUrl, result.configureUrl, 'Addon URL ready');
+    } catch (e) {
+      showStatus('Failed to save configuration. Please try again.');
+    }
+  }
+
+  // --- Update (existing install) ---
+  async function update() {
+    clearStatus();
+    const groqKey = document.getElementById('groqKey').value.trim();
+    const tmdbKey = document.getElementById('tmdbKey').value.trim();
+    if (!groqKey || groqKey.length < 10) { showStatus('Please enter a valid Groq API key.'); return; }
+    if (!tmdbKey || tmdbKey.length < 10) { showStatus('Please enter a valid TMDB API key.'); return; }
+
+    const btn = document.getElementById('updateBtn');
+    const ok = await validateKeys(groqKey, tmdbKey, btn, 'Update Settings');
+    if (!ok) return;
+
+    const configId = window.EXISTING_CONFIG_ID;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>Saving…';
+    try {
+      const resp = await fetch(`/aisearch/api/config/${configId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ configData: buildConfig() }),
+      });
+      const result = await resp.json();
+      if (!result.ok) throw new Error('Update failed');
+
+      const hostName = HOST;
+      const manifestUrl = `https://${hostName}/aisearch/${configId}/manifest.json`;
+      const configureUrl = `https://${hostName}/aisearch/${configId}/configure`;
+      showResult(manifestUrl, configureUrl, 'Settings updated');
+      showStatus('Settings saved — your existing Stremio install will pick up the changes automatically.', 'success');
+    } catch (e) {
+      showStatus('Failed to update settings. Please try again.');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = 'Update Settings';
+    }
+  }
+
+  // --- Init: show Update button if editing existing config ---
+  (function initButtons() {
+    const configId = window.EXISTING_CONFIG_ID || localStorage.getItem('stremioAiSearchConfigId');
+    if (configId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(configId)) {
+      window.EXISTING_CONFIG_ID = configId;
+      document.getElementById('generateBtn').style.display = 'none';
+      document.getElementById('updateBtn').style.display = 'inline-block';
+    }
+  })();
 
   // --- Pre-fill if editing existing config ---
   (async function loadExistingConfig() {

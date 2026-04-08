@@ -33,6 +33,24 @@ async function initDb() {
       END;
     `);
 
+    // Create user_configs table for stable config IDs
+    await db.exec(`
+      CREATE TABLE IF NOT EXISTS user_configs (
+        id TEXT PRIMARY KEY,
+        config_encrypted TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    await db.exec(`
+      CREATE TRIGGER IF NOT EXISTS update_user_configs_updated_at
+      AFTER UPDATE ON user_configs
+      FOR EACH ROW
+      BEGIN
+        UPDATE user_configs SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+      END;
+    `);
+
     logger.info("Database initialized successfully.");
   } catch (error) {
     logger.error("Failed to initialize database", { error: error.message, stack: error.stack });
@@ -79,4 +97,33 @@ async function getTokens(username) {
   }
 }
 
-module.exports = { initDb, storeTokens, getTokens };
+/**
+ * Saves or updates a user config by stable ID.
+ */
+async function saveUserConfig(id, configEncrypted) {
+  try {
+    await db.run(
+      `INSERT INTO user_configs (id, config_encrypted)
+       VALUES (?, ?)
+       ON CONFLICT(id) DO UPDATE SET config_encrypted = excluded.config_encrypted`,
+      [id, configEncrypted]
+    );
+  } catch (error) {
+    logger.error(`Failed to save user config: ${id}`, { error: error.message });
+    throw error;
+  }
+}
+
+/**
+ * Retrieves a user config by stable ID.
+ */
+async function getUserConfig(id) {
+  try {
+    return await db.get("SELECT * FROM user_configs WHERE id = ?", [id]);
+  } catch (error) {
+    logger.error(`Failed to get user config: ${id}`, { error: error.message });
+    return null;
+  }
+}
+
+module.exports = { initDb, storeTokens, getTokens, saveUserConfig, getUserConfig };
