@@ -513,7 +513,7 @@ async function processPreferencesInParallel(watched, rated, history) {
  * @param {string} message - The main body of the error message.
  * @returns {object} A Stremio meta object.
  */
-function createErrorMeta(title, message) {
+function createErrorMeta(title, message, type = 'movie') {
   // Simple text wrapping for the message
   const words = message.split(' ');
   let lines = [];
@@ -550,7 +550,7 @@ function createErrorMeta(title, message) {
 
   return {
     id: `error:${title.replace(/\s+/g, '_')}`,
-    type: 'movie',
+    type,
     name: title,
     description: message,
     poster: posterDataUri,
@@ -2639,7 +2639,7 @@ const catalogHandler = async function (args, req) {
 
     if (!configData || Object.keys(configData).length === 0) {
       logger.error('Configuration Missing', { reason: 'The addon has not been configured yet. Please set your API keys.' });
-      const errorMeta = createErrorMeta('Configuration Missing', 'The addon has not been configured yet. Please set your API keys.');
+      const errorMeta = createErrorMeta('Configuration Missing', 'The addon has not been configured yet. Please set your API keys.', type);
       return { metas: [errorMeta] };
     }
 
@@ -2648,24 +2648,24 @@ const catalogHandler = async function (args, req) {
 
     if (configData.traktConnectionError) {
       logger.error('Trakt Connection Failed', { reason: 'User access to Trakt.tv has expired or was revoked.' });
-      const errorMeta = createErrorMeta('Trakt Connection Failed', 'Your access to Trakt.tv has expired or was revoked. Please log in again via the addon configuration page.');
+      const errorMeta = createErrorMeta('Trakt Connection Failed', 'Your access to Trakt.tv has expired or was revoked. Please log in again via the addon configuration page.', type);
       return { metas: [errorMeta] };
     }
     if (!tmdbKey || tmdbKey.length < 10) {
       logger.error('TMDB API Key Invalid', { reason: 'Your TMDB API key is missing or invalid.' });
-      const errorMeta = createErrorMeta('TMDB API Key Invalid', 'Your TMDB API key is missing or invalid. Please correct it in the addon settings.');
+      const errorMeta = createErrorMeta('TMDB API Key Invalid', 'Your TMDB API key is missing or invalid. Please correct it in the addon settings.', type);
       return { metas: [errorMeta] };
     }
     const tmdbValidationUrl = `https://api.themoviedb.org/3/configuration?api_key=${tmdbKey}`;
     const tmdbResponse = await fetch(tmdbValidationUrl);
     if (!tmdbResponse.ok) {
       logger.error('TMDB API Key Validation Failed', { reason: `The key failed validation (Status: ${tmdbResponse.status}).`, keyUsed: tmdbKey.substring(0, 4) + '...' });
-      const errorMeta = createErrorMeta('TMDB API Key Invalid', `The key failed validation (Status: ${tmdbResponse.status}). Please check your TMDB key in the addon settings.`);
+      const errorMeta = createErrorMeta('TMDB API Key Invalid', `The key failed validation (Status: ${tmdbResponse.status}). Please check your TMDB key in the addon settings.`, type);
       return { metas: [errorMeta] };
     }
     if (!groqKey || groqKey.length < 10) {
       logger.error('Groq API Key Invalid', { reason: 'Your Groq API key is missing or invalid.' });
-      const errorMeta = createErrorMeta('Groq API Key Invalid', 'Your Groq API key is missing or invalid. Please correct it in the addon settings.');
+      const errorMeta = createErrorMeta('Groq API Key Invalid', 'Your Groq API key is missing or invalid. Please correct it in the addon settings.', type);
       return { metas: [errorMeta] };
     }
 
@@ -2714,13 +2714,13 @@ const catalogHandler = async function (args, req) {
         // If after all that, we still don't have a search query, it's an error.
         if (!searchQuery) {
           logger.error("Failed to resolve homepage query from ID and config", { id });
-          const errorMeta = createErrorMeta('Configuration Error', 'Could not find the matching homepage query for this catalog.');
+          const errorMeta = createErrorMeta('Configuration Error', 'Could not find the matching homepage query for this catalog.', type);
           return { metas: [errorMeta] };
         }
       } else {
         logger.error("No search query provided");
         logger.emptyCatalog("No search query provided", { type, extra });
-        const errorMeta = createErrorMeta('Search Required', 'Please enter a search term to get AI recommendations.');
+        const errorMeta = createErrorMeta('Search Required', 'Please enter a search term to get AI recommendations.', type);
         return { metas: [errorMeta] }
       }
     }
@@ -3053,7 +3053,7 @@ const catalogHandler = async function (args, req) {
             model: groqModel,
             responseText: text
           });
-          const errorMeta = createErrorMeta('No Results Found', 'The AI could not find any recommendations for your query. Please try rephrasing your search.');
+          const errorMeta = createErrorMeta('No Results Found', 'The AI could not find any recommendations for your query. Please try rephrasing your search.', type);
           return { metas: [errorMeta] };
         }
 
@@ -3078,7 +3078,7 @@ const catalogHandler = async function (args, req) {
             type: type,
             recommendationCount: selectedRecommendations.length
           });
-          const errorMeta = createErrorMeta('Data Fetch Error', 'Could not retrieve details for any of the AI recommendations. This may be a temporary TMDB issue.');
+          const errorMeta = createErrorMeta('Data Fetch Error', 'Could not retrieve details for any of the AI recommendations. This may be a temporary TMDB issue.', type);
           return { metas: [errorMeta] };
         }
 
@@ -3103,7 +3103,7 @@ const catalogHandler = async function (args, req) {
 
         if (finalMetas.length === 0) {
             logger.error("No results found for query (from cache)", { query: searchQuery, type: type });
-            const errorMeta = createErrorMeta('No Results Found', 'The AI could not find any recommendations for your query. Please try rephrasing your search.');
+            const errorMeta = createErrorMeta('No Results Found', 'The AI could not find any recommendations for your query. Please try rephrasing your search.', type);
             return { metas: [errorMeta] };
         }
 
@@ -3354,13 +3354,9 @@ const catalogHandler = async function (args, req) {
         "IMPORTANT INSTRUCTIONS:",
         `- Base your recommendations on the most current, publicly available information, especially for queries about new, recent, or future releases.`,
         `- Current year is ${currentYear}. For time-based queries:`,
-        `  * 'past year' means content from ${
-          currentYear - 1
-        } to ${currentYear}`,
-        `  * 'recent' means within the last 2-3 years (${
-          currentYear - 2
-        } to ${currentYear})`,
-        `  * 'new' or 'latest' means released in ${currentYear}`,
+        `  * 'past year' means content from ${currentYear - 1} to ${currentYear}`,
+        `  * 'recent' means within the last 2-3 years (${currentYear - 2} to ${currentYear})`,
+        `  * 'new' or 'latest' means released within the last 1-2 years (${currentYear - 1} to ${currentYear})`,
         "SPECIFIC QUERY HANDLING:",
         "First, determine if the query matches one of the types below. If it does, follow its rules precisely.",
         "",
@@ -3730,7 +3726,7 @@ const catalogHandler = async function (args, req) {
 
       if (finalMetas.length === 0) {
           logger.error("No results found for query (from live API call)", { query: searchQuery, type: type });
-          const errorMeta = createErrorMeta('No Results Found', 'The AI could not find any recommendations for your query. Please try rephrasing your search.');
+          const errorMeta = createErrorMeta('No Results Found', 'The AI could not find any recommendations for your query. Please try rephrasing your search.', type);
           return { metas: [errorMeta] };
       }
 
@@ -3754,12 +3750,12 @@ const catalogHandler = async function (args, req) {
       } else if (error.message.includes('404') || error.status === 404) {
         errorMessage = 'The selected Groq model is invalid or not found. Please try a different model in the settings.';
       }
-      const errorMeta = createErrorMeta('AI Error', errorMessage);
+      const errorMeta = createErrorMeta('AI Error', errorMessage, type);
       return { metas: [errorMeta] };
     }
   } catch (error) {
     logger.error("Catalog processing error", { error: error.message, stack: error.stack });
-    const errorMeta = createErrorMeta('Addon Error', 'A critical error occurred. Please check the server logs for more details.');
+    const errorMeta = createErrorMeta('Addon Error', 'A critical error occurred. Please check the server logs for more details.', type);
     return { metas: [errorMeta] };
   }
 };
