@@ -2505,7 +2505,11 @@ Rules:
         maxRetries: 3,
         initialDelay: 2000,
         maxDelay: 10000,
-        shouldRetry: (error) => !error.status || error.status !== 400,
+        shouldRetry: (error) => {
+          if (!error.status) return true;
+          if (error.status === 400 && error.message && error.message.includes('json_validate_failed')) return true;
+          return error.status >= 500;
+        },
         operationName: "Genre discovery API call",
       }
     );
@@ -3456,7 +3460,12 @@ const catalogHandler = async function (args, req) {
           maxRetries: 3,
           initialDelay: 2000,
           maxDelay: 10000,
-          shouldRetry: (error) => !error.status || error.status !== 400,
+          shouldRetry: (error) => {
+            if (!error.status) return true;
+            // Retry on json_validate_failed (model returned empty/invalid JSON — transient)
+            if (error.status === 400 && error.message && error.message.includes('json_validate_failed')) return true;
+            return error.status >= 500;
+          },
           operationName: "Groq API call",
         }
       );
@@ -3886,7 +3895,11 @@ const metaHandler = async function (args) {
         {
           maxRetries: 3,
           baseDelay: 1000,
-          shouldRetry: (error) => !error.status || error.status !== 400,
+          shouldRetry: (error) => {
+            if (!error.status) return true;
+            if (error.status === 400 && error.message && error.message.includes('json_validate_failed')) return true;
+            return error.status >= 500;
+          },
           operationName: "Groq API call (similar content)"
         }
       );
