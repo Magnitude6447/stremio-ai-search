@@ -1510,9 +1510,9 @@ app.post(["/validate", "/aisearch/validate"], express.json(), async (req, res) =
           const completion = await groq.chat.completions.create({
             messages: [{ role: "user", content: "Say hello." }],
             model: modelToUse,
-            max_tokens: 5,
           });
-          if (completion.choices[0].message.content.length > 0) {
+          const content = completion?.choices?.[0]?.message?.content;
+          if (content != null) {
             validationResults.groq = true;
           } else {
             validationResults.errors.groq = "Invalid Groq API key - No response";
